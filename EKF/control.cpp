@@ -328,9 +328,9 @@ void Ekf::controlOpticalFlowFusion()
 {
 	// Detect if the vehicle is on the ground and is being excessively tilted, shaken or rotated.
 	if (!_control_status.flags.in_air) {
-		bool motion_is_excessive = ((_accel_mag_filt > 10.8f)
-					    || (_accel_mag_filt < 8.8f)
-					    || (_ang_rate_mag_filt > 0.5f)
+		bool motion_is_excessive = ((_accel_mag_filt > 14.7f)
+					    || (_accel_mag_filt < 4.9f)
+					    || (_ang_rate_mag_filt > _params.flow_rate_max)
 					    || (_R_to_earth(2,2) < 0.866f));
 		if (motion_is_excessive) {
 			_time_bad_motion_us = _imu_sample_delayed.time_us;
