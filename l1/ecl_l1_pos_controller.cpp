@@ -43,12 +43,23 @@
 #include "ecl_l1_pos_controller.h"
 
 using matrix::Vector2f;
+using matrix::wrap_pi;
 
-float ECL_L1_Pos_Controller::nav_roll()
+
+void ECL_L1_Pos_Controller::update_roll_setpoint()
 {
-	float ret = atanf(_lateral_accel * 1.0f / CONSTANTS_ONE_G);
-	ret = math::constrain(ret, -_roll_lim_rad, _roll_lim_rad);
-	return ret;
+	float roll_new = atanf(_lateral_accel * 1.0f / CONSTANTS_ONE_G);
+	roll_new = math::constrain(roll_new, -_roll_lim_rad, _roll_lim_rad);
+
+	if (_dt > 0.0f && _roll_slew_rate > 0.0f) {
+		// slew rate limiting active
+		roll_new = math::constrain(roll_new, _roll_setpoint - _roll_slew_rate * _dt, _roll_setpoint + _roll_slew_rate * _dt);
+	}
+
+	if (ISFINITE(roll_new)) {
+		_roll_setpoint = roll_new;
+	}
+
 }
 
 float ECL_L1_Pos_Controller::switch_distance(float wp_radius)
@@ -181,6 +192,8 @@ ECL_L1_Pos_Controller::navigate_waypoints(const Vector2f &vector_A, const Vector
 
 	/* the bearing angle, in NED frame */
 	_bearing_error = eta;
+
+	update_roll_setpoint();
 }
 
 void
@@ -280,6 +293,8 @@ ECL_L1_Pos_Controller::navigate_loiter(const Vector2f &vector_A, const Vector2f 
 		/* bearing from current position to L1 point */
 		_nav_bearing = atan2f(-vector_A_to_airplane_unit(1), -vector_A_to_airplane_unit(0));
 	}
+
+	update_roll_setpoint();
 }
 
 void ECL_L1_Pos_Controller::navigate_heading(float navigation_heading, float current_heading,
@@ -292,9 +307,9 @@ void ECL_L1_Pos_Controller::navigate_heading(float navigation_heading, float cur
 	 * (and no crosstrack correction occurs),
 	 * target and navigation bearing become the same
 	 */
-	_target_bearing = _nav_bearing = _wrap_pi(navigation_heading);
-	float eta = _target_bearing - _wrap_pi(current_heading);
-	eta = _wrap_pi(eta);
+	_target_bearing = _nav_bearing = wrap_pi(navigation_heading);
+
+	float eta = wrap_pi(_target_bearing - wrap_pi(current_heading));
 
 	/* consequently the bearing error is exactly eta: */
 	_bearing_error = eta;
@@ -315,6 +330,8 @@ void ECL_L1_Pos_Controller::navigate_heading(float navigation_heading, float cur
 	/* limit eta to 90 degrees */
 	eta = math::constrain(eta, (-M_PI_F) / 2.0f, +M_PI_F / 2.0f);
 	_lateral_accel = 2.0f * sinf(eta) * omega_vel;
+
+	update_roll_setpoint();
 }
 
 void ECL_L1_Pos_Controller::navigate_level_flight(float current_heading)
@@ -330,6 +347,8 @@ void ECL_L1_Pos_Controller::navigate_level_flight(float current_heading)
 
 	/* not circling a waypoint when flying level */
 	_circle_mode = false;
+
+	update_roll_setpoint();
 }
 
 Vector2f ECL_L1_Pos_Controller::get_local_planar_vector(const Vector2f &origin, const Vector2f &target) const

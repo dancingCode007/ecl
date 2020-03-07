@@ -62,7 +62,7 @@ syms R_DECL R_YAW real; % variance of declination or yaw angle observation
 syms BCXinv BCYinv real % inverse of ballistic coefficient for wind relative movement along the x and y  body axes
 syms rho real % air density (kg/m^3)
 syms R_ACC real % variance of accelerometer measurements (m/s^2)^2
-syms Kaccx Kaccy real % derivative of X and Y body specific forces wrt componenent of true airspeed along each axis (1/s)
+syms Kaccx Kaccy real % derivative of X and Y body specific forces wrt component of true airspeed along each axis (1/s)
 
 %% define the state prediction equations
 
@@ -391,8 +391,10 @@ fix_c_code('K_VEL.c');
 load('StatePrediction.mat');
 
 % Calculate the yaw (first rotation) angle from the 321 rotation sequence
-angMeas = atan(Tbn(2,1)/Tbn(1,1));
-H_YAW321 = jacobian(angMeas,stateVector); % measurement Jacobian
+% Provide alternative angle that avoids singularity at +-pi/2 
+angMeasA = atan(Tbn(2,1)/Tbn(1,1));
+angMeasB = pi/2 - atan(Tbn(1,1)/Tbn(2,1));
+H_YAW321 = jacobian([angMeasA;angMeasB],stateVector); % measurement Jacobian
 H_YAW321 = simplify(H_YAW321);
 ccode(H_YAW321,'file','calcH_YAW321.c');
 fix_c_code('calcH_YAW321.c');
@@ -405,11 +407,36 @@ reset(symengine);
 load('StatePrediction.mat');
 
 % Calculate the yaw (first rotation) angle from an Euler 312 sequence
-angMeas = atan(-Tbn(1,2)/Tbn(2,2));
-H_YAW312 = jacobian(angMeas,stateVector); % measurement Jacobianclea
+% Provide alternative angle that avoids singularity at +-pi/2 
+angMeasA = atan(-Tbn(1,2)/Tbn(2,2));
+angMeasB = pi/2 - atan(-Tbn(2,2)/Tbn(1,2));
+H_YAW312 = jacobian([angMeasA;angMeasB],stateVector); % measurement Jacobian
 H_YAW312 = simplify(H_YAW312);
 ccode(H_YAW312,'file','calcH_YAW312.c');
 fix_c_code('calcH_YAW312.c');
+
+% reset workspace
+clear all;
+reset(symengine);
+
+%% derive equations for fusion of dual antenna yaw measurement
+load('StatePrediction.mat');
+
+syms ant_yaw real; % yaw angle of antenna array axis wrt X body axis
+
+% define antenna vector in body frame
+ant_vec_bf = [cos(ant_yaw);sin(ant_yaw);0];
+
+% rotate into earth frame
+ant_vec_ef = Tbn * ant_vec_bf;
+
+% Calculate the yaw angle from the projection
+angMeas = atan(ant_vec_ef(2)/ant_vec_ef(1));
+
+H_YAWGPS = jacobian(angMeas,stateVector); % measurement Jacobian
+H_YAWGPS = simplify(H_YAWGPS);
+ccode(H_YAWGPS,'file','calcH_YAWGPS.c');
+fix_c_code('calcH_YAWGPS.c');
 
 % reset workspace
 clear all;
@@ -487,5 +514,6 @@ load('Drag.mat');
 fileName = strcat('SymbolicOutput',int2str(nStates),'.mat');
 save(fileName);
 SaveScriptCode(nStates);
-ConvertToM(nStates);
-ConvertToC(nStates);
+ConvertToM(nStates); % convert symbolic expressions to Matlab expressions
+ConvertToC(nStates); % convert Matlab expressions to C code expressions
+ConvertCtoC(nStates); % convert covariance matrix expressions from array to matrix syntax

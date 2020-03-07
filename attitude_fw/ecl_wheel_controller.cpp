@@ -42,11 +42,9 @@
 #include <float.h>
 #include <geo/geo.h>
 #include <mathlib/mathlib.h>
+#include <matrix/math.hpp>
 
-ECL_WheelController::ECL_WheelController() :
-	ECL_Controller("wheel")
-{
-}
+using matrix::wrap_pi;
 
 float ECL_WheelController::control_bodyrate(const struct ECL_ControlData &ctl_data)
 {
@@ -112,7 +110,7 @@ float ECL_WheelController::control_attitude(const struct ECL_ControlData &ctl_da
 	}
 
 	/* Calculate the error */
-	float yaw_error = _wrap_pi(ctl_data.yaw_setpoint - ctl_data.yaw);
+	float yaw_error = wrap_pi(ctl_data.yaw_setpoint - ctl_data.yaw);
 
 	/*  Apply P controller: rate setpoint from current error and time constant */
 	_rate_setpoint =  yaw_error / _tc;

@@ -46,6 +46,7 @@
 
 #include <mathlib/mathlib.h>
 
+#include <math.h>
 #include <stdint.h>
 
 using math::constrain;
@@ -93,7 +94,7 @@ static constexpr const int8_t inclination_table[13][37] = \
 	{ 71,71,72,73,75,77,78,80,81,81,80,79,77,76,74,73,73,73,73,73,73,74,74,75,76,77,78,78,78,78,77,75,73,72,71,71,71 },
 };
 
-// strength data in mTesla
+// strength data in micro-Tesla or centi-Gauss
 static constexpr const int8_t strength_table[13][37] = \
 {
 	{ 62,60,58,56,54,52,49,46,43,41,38,36,34,32,31,31,30,30,30,31,33,35,38,42,46,51,55,59,62,64,66,67,67,66,65,64,62 },
@@ -139,8 +140,8 @@ get_table_data(float lat, float lon, const int8_t table[13][37])
 	}
 
 	/* round down to nearest sampling resolution */
-	float min_lat = int(lat / SAMPLING_RES) * SAMPLING_RES;
-	float min_lon = int(lon / SAMPLING_RES) * SAMPLING_RES;
+	float min_lat = floorf(lat / SAMPLING_RES) * SAMPLING_RES;
+	float min_lon = floorf(lon / SAMPLING_RES) * SAMPLING_RES;
 
 	/* find index of nearest low sampling point */
 	unsigned min_lat_index = get_lookup_table_index(&min_lat, SAMPLING_MIN_LAT, SAMPLING_MAX_LAT);

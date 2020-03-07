@@ -56,7 +56,7 @@ static constexpr float DT_MAX = 1.0f;	///< max value of _dt allowed before a fil
  */
 void TECS::update_vehicle_state_estimates(float airspeed, const matrix::Dcmf &rotMat,
 		const matrix::Vector3f &accel_body, bool altitude_lock, bool in_air,
-		float altitude, bool vz_valid, float vz, float az)
+		float altitude, float vz)
 {
 	// calculate the time lapsed since the last update
 	uint64_t now = ecl_absolute_time();
@@ -74,16 +74,6 @@ void TECS::update_vehicle_state_estimates(float airspeed, const matrix::Dcmf &ro
 	}
 
 	if (reset_altitude) {
-		_vert_pos_state = altitude;
-
-		if (vz_valid) {
-			_vert_vel_state = -vz;
-
-		} else {
-			_vert_vel_state = 0.0f;
-		}
-
-		_vert_accel_state = 0.0f;
 		_states_initalized = false;
 	}
 
@@ -92,40 +82,9 @@ void TECS::update_vehicle_state_estimates(float airspeed, const matrix::Dcmf &ro
 
 	_in_air = in_air;
 
-	// Generate the height and climb rate state estimates
-	if (vz_valid) {
-		// Set the velocity and position state to the the INS data
-		_vert_vel_state = -vz;
-		_vert_pos_state = altitude;
-
-	} else {
-		// Get height acceleration
-		float hgt_ddot_mea = -az;
-
-		// If we have no vertical INS data, estimate the vertical velocity using a complementary filter
-		// Perform filter calculation using backwards Euler integration
-		// Coefficients selected to place all three filter poles at omega
-		// Reference Paper: Optimising the Gains of the Baro-Inertial Vertical Channel
-		// Widnall W.S, Sinha P.K, AIAA Journal of Guidance and Control, 78-1307R
-		float omega2 = _hgt_estimate_freq * _hgt_estimate_freq;
-		float hgt_err = altitude - _vert_pos_state;
-		float vert_accel_input = hgt_err * omega2 * _hgt_estimate_freq;
-		_vert_accel_state = _vert_accel_state + vert_accel_input * dt;
-		float vert_vel_input = _vert_accel_state + hgt_ddot_mea + hgt_err * omega2 * 3.0f;
-		_vert_vel_state = _vert_vel_state + vert_vel_input * dt;
-		float vert_pos_input = _vert_vel_state + hgt_err * _hgt_estimate_freq * 3.0f;
-
-		// If more than 1 second has elapsed since last update then reset the position state
-		// to the measured height
-		if (reset_altitude) {
-			_vert_pos_state = altitude;
-
-		} else {
-			_vert_pos_state = _vert_pos_state + vert_pos_input * dt;
-
-		}
-
-	}
+	// Set the velocity and position state to the the INS data
+	_vert_vel_state = -vz;
+	_vert_pos_state = altitude;
 
 	// Update and average speed rate of change if airspeed is being measured
 	if (ISFINITE(airspeed) && airspeed_sensor_enabled()) {
@@ -358,24 +317,28 @@ void TECS::_update_throttle_setpoint(const float throttle_cruise, const matrix::
 
 		_last_throttle_setpoint = _throttle_setpoint;
 
-		// Calculate throttle integrator state upper and lower limits with allowance for
-		// 10% throttle saturation to accommodate noise on the demand
-		float integ_state_max = (_throttle_setpoint_max - _throttle_setpoint + 0.1f);
-		float integ_state_min = (_throttle_setpoint_min - _throttle_setpoint - 0.1f);
+		if (_integrator_gain > 0.0f) {
+			// Calculate throttle integrator state upper and lower limits with allowance for
+			// 10% throttle saturation to accommodate noise on the demand.
+			float integ_state_max = _throttle_setpoint_max - _throttle_setpoint + 0.1f;
+			float integ_state_min = _throttle_setpoint_min - _throttle_setpoint - 0.1f;
 
-		// Calculate a throttle demand from the integrated total energy error
-		// This will be added to the total throttle demand to compensate for steady state errors
-		_throttle_integ_state = _throttle_integ_state + (_STE_error * _integrator_gain) * _dt * STE_to_throttle;
+			// Calculate a throttle demand from the integrated total energy error
+			// This will be added to the total throttle demand to compensate for steady state errors
+			_throttle_integ_state = _throttle_integ_state + (_STE_error * _integrator_gain) * _dt * STE_to_throttle;
 
-		if (_climbout_mode_active) {
-			// During climbout, set the integrator to maximum throttle to prevent transient throttle drop
-			// at end of climbout when we transition to closed loop throttle control
-			_throttle_integ_state = integ_state_max;
+			if (_climbout_mode_active) {
+				// During climbout, set the integrator to maximum throttle to prevent transient throttle drop
+				// at end of climbout when we transition to closed loop throttle control
+				_throttle_integ_state = integ_state_max;
+
+			} else {
+				// Respect integrator limits during closed loop operation.
+				_throttle_integ_state = constrain(_throttle_integ_state, integ_state_min, integ_state_max);
+			}
 
 		} else {
-			// Respect integrator limits during closed loop operation.
-			_throttle_integ_state = constrain(_throttle_integ_state, integ_state_min, integ_state_max);
-
+			_throttle_integ_state = 0.0f;
 		}
 
 		if (airspeed_sensor_enabled()) {
@@ -459,22 +422,27 @@ void TECS::_update_pitch_setpoint()
 	// Calculate derivative from change in climb angle to rate of change of specific energy balance
 	float climb_angle_to_SEB_rate = _tas_state * _pitch_time_constant * CONSTANTS_ONE_G;
 
-	// Calculate pitch integrator input term
-	float pitch_integ_input = _SEB_error * _integrator_gain;
+	if (_integrator_gain > 0.0f) {
+		// Calculate pitch integrator input term
+		float pitch_integ_input = _SEB_error * _integrator_gain;
 
-	// Prevent the integrator changing in a direction that will increase pitch demand saturation
-	// Decay the integrator at the control loop time constant if the pitch demand from the previous time step is saturated
-	if (_pitch_setpoint_unc > _pitch_setpoint_max) {
-		pitch_integ_input = min(pitch_integ_input,
-					min((_pitch_setpoint_max - _pitch_setpoint_unc) * climb_angle_to_SEB_rate / _pitch_time_constant, 0.0f));
+		// Prevent the integrator changing in a direction that will increase pitch demand saturation
+		// Decay the integrator at the control loop time constant if the pitch demand from the previous time step is saturated
+		if (_pitch_setpoint_unc > _pitch_setpoint_max) {
+			pitch_integ_input = min(pitch_integ_input,
+						min((_pitch_setpoint_max - _pitch_setpoint_unc) * climb_angle_to_SEB_rate / _pitch_time_constant, 0.0f));
 
-	} else if (_pitch_setpoint_unc < _pitch_setpoint_min) {
-		pitch_integ_input = max(pitch_integ_input,
-					max((_pitch_setpoint_min - _pitch_setpoint_unc) * climb_angle_to_SEB_rate / _pitch_time_constant, 0.0f));
+		} else if (_pitch_setpoint_unc < _pitch_setpoint_min) {
+			pitch_integ_input = max(pitch_integ_input,
+						max((_pitch_setpoint_min - _pitch_setpoint_unc) * climb_angle_to_SEB_rate / _pitch_time_constant, 0.0f));
+		}
+
+		// Update the pitch integrator state.
+		_pitch_integ_state = _pitch_integ_state + pitch_integ_input * _dt;
+
+	} else {
+		_pitch_integ_state = 0.0f;
 	}
-
-	// Update the pitch integrator state
-	_pitch_integ_state = _pitch_integ_state + pitch_integ_input * _dt;
 
 	// Calculate a specific energy correction that doesn't include the integrator contribution
 	float SEB_correction = _SEB_error + _SEB_rate_error * _pitch_damping_gain + SEB_rate_setpoint * _pitch_time_constant;
@@ -512,7 +480,6 @@ void TECS::_initialize_states(float pitch, float throttle_cruise, float baro_alt
 	if (_pitch_update_timestamp == 0 || _dt > DT_MAX || !_in_air || !_states_initalized) {
 		// On first time through or when not using TECS of if there has been a large time slip,
 		// states must be reset to allow filters to a clean start
-		_vert_accel_state = 0.0f;
 		_vert_vel_state = 0.0f;
 		_vert_pos_state = baro_altitude;
 		_tas_rate_state = 0.0f;

@@ -54,12 +54,12 @@ class ECL_YawController :
 	public ECL_Controller
 {
 public:
-	ECL_YawController();
+	ECL_YawController() = default;
 	~ECL_YawController() = default;
 
-	float control_attitude(const struct ECL_ControlData &ctl_data);
-	float control_euler_rate(const struct ECL_ControlData &ctl_data);
-	float control_bodyrate(const struct ECL_ControlData &ctl_data);
+	float control_attitude(const struct ECL_ControlData &ctl_data) override;
+	float control_euler_rate(const struct ECL_ControlData &ctl_data) override;
+	float control_bodyrate(const struct ECL_ControlData &ctl_data) override;
 
 	/* Additional setters */
 	void set_coordinated_min_speed(float coordinated_min_speed)
@@ -78,10 +78,10 @@ public:
 	};
 
 protected:
-	float _coordinated_min_speed;
-	float _max_rate;
+	float _coordinated_min_speed{1.0f};
+	float _max_rate{0.0f};
 
-	int32_t _coordinated_method;
+	int32_t _coordinated_method{COORD_METHOD_OPEN};
 
 	float control_attitude_impl_openloop(const struct ECL_ControlData &ctl_data);
 

@@ -51,6 +51,32 @@ using ecl_abstime = hrt_abstime;
 #define ECL_WARN PX4_WARN
 #define ECL_ERR	 PX4_ERR
 
+#if defined(__PX4_POSIX)
+#define ECL_INFO_TIMESTAMPED(X) PX4_INFO("%llu: " X, (unsigned long long)_imu_sample_delayed.time_us)
+#define ECL_WARN_TIMESTAMPED(X) PX4_WARN("%llu: " X, (unsigned long long)_imu_sample_delayed.time_us)
+#define ECL_ERR_TIMESTAMPED(X) PX4_ERR("%llu: " X, (unsigned long long)_imu_sample_delayed.time_us)
+#else
+#define ECL_INFO_TIMESTAMPED PX4_INFO
+#define ECL_WARN_TIMESTAMPED PX4_WARN
+#define ECL_ERR_TIMESTAMPED PX4_ERR
+#endif
+
+#elif defined(__PAPARAZZI)
+
+#include "std.h"
+
+#define ecl_absolute_time() (0)
+#define ecl_elapsed_time(t) (*t * 0UL) // TODO: add simple time functions
+
+using ecl_abstime = uint64_t;
+
+#define ECL_INFO(...)
+#define ECL_WARN(...)
+#define ECL_ERR(...)
+#define ECL_INFO_TIMESTAMPED PX4_INFO
+#define ECL_WARN_TIMESTAMPED PX4_WARN
+#define ECL_ERR_TIMESTAMPED PX4_ERR
+
 #else
 
 #include <cstdio>
@@ -64,22 +90,11 @@ using ecl_abstime = uint64_t;
 #define ECL_INFO printf
 #define ECL_WARN printf
 #define ECL_ERR printf
+#define ECL_INFO_TIMESTAMPED printf
+#define ECL_WARN_TIMESTAMPED printf
+#define ECL_ERR_TIMESTAMPED printf
 
 #endif /* PX4_POSIX || PX4_NUTTX */
 
-
-#if defined(__PX4_QURT)
-
-// Missing math.h defines
+#include <math.h>
 #define ISFINITE(x) __builtin_isfinite(x)
-
-#else /* !QuRT */
-
-#include <cmath>
-#if defined(__cplusplus) && !defined(__PX4_NUTTX)
-#define ISFINITE(x) std::isfinite(x)
-#else
-#define ISFINITE(x) isfinite(x)
-#endif
-
-#endif

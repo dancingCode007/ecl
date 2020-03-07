@@ -40,40 +40,16 @@
  */
 
 #include "data_validator.h"
+
 #include <ecl.h>
 
-DataValidator::DataValidator() :
-	_error_mask(ERROR_FLAG_NO_ERROR),
-	_timeout_interval(20000),
-	_time_last(0),
-	_event_count(0),
-	_error_count(0),
-	_error_density(0),
-	_priority(0),
-	_mean{0.0f},
-	_lp{0.0f},
-	_M2{0.0f},
-	_rms{0.0f},
-	_value{0.0f},
-	_vibe{0.0f},
-	_value_equal_count(0),
-	_value_equal_count_threshold(VALUE_EQUAL_COUNT_DEFAULT),
-	_sibling(nullptr)
-{
-
-}
-
-void
-DataValidator::put(uint64_t timestamp, float val, uint64_t error_count_in, int priority_in)
-{
-	float data[dimensions] = { val }; //sets the first value and all others to 0
-
+void DataValidator::put(uint64_t timestamp, float val, uint64_t error_count_in, int priority_in) {
+	float data[dimensions] = {val};  // sets the first value and all others to 0
 	put(timestamp, data, error_count_in, priority_in);
 }
 
-void
-DataValidator::put(uint64_t timestamp, float val[dimensions], uint64_t error_count_in, int priority_in)
-{
+void DataValidator::put(uint64_t timestamp, const float val[dimensions], uint64_t error_count_in, int priority_in) {
+
 	_event_count++;
 
 	if (error_count_in > _error_count) {
@@ -108,8 +84,6 @@ DataValidator::put(uint64_t timestamp, float val[dimensions], uint64_t error_cou
 			}
 		}
 
-		_vibe[i] = _vibe[i] * 0.99f + 0.01f * fabsf(val[i] - _lp[i]);
-
 		// XXX replace with better filter, make it auto-tune to update rate
 		_lp[i] = _lp[i] * 0.99f + 0.01f * val[i];
 
@@ -119,9 +93,8 @@ DataValidator::put(uint64_t timestamp, float val[dimensions], uint64_t error_cou
 	_time_last = timestamp;
 }
 
-float
-DataValidator::confidence(uint64_t timestamp)
-{
+float DataValidator::confidence(uint64_t timestamp) {
+
 	float ret = 1.0f;
 
 	/* check if we have any data */
@@ -148,7 +121,6 @@ DataValidator::confidence(uint64_t timestamp)
 		/* cap error density counter at window size */
 		_error_mask |= ERROR_FLAG_HIGH_ERRDENSITY;
 		_error_density = ERROR_DENSITY_WINDOW;
-
 	}
 
 	/* no critical errors */
@@ -164,17 +136,14 @@ DataValidator::confidence(uint64_t timestamp)
 	return ret;
 }
 
-void
-DataValidator::print()
-{
+void DataValidator::print() {
 	if (_time_last == 0) {
 		ECL_INFO("\tno data");
 		return;
 	}
 
 	for (unsigned i = 0; i < dimensions; i++) {
-		ECL_INFO("\tval: %8.4f, lp: %8.4f mean dev: %8.4f RMS: %8.4f conf: %8.4f",
-			 (double) _value[i], (double)_lp[i], (double)_mean[i],
-			 (double)_rms[i], (double)confidence(ecl_absolute_time()));
+		ECL_INFO("\tval: %8.4f, lp: %8.4f mean dev: %8.4f RMS: %8.4f conf: %8.4f", (double)_value[i],
+			 (double)_lp[i], (double)_mean[i], (double)_rms[i], (double)confidence(ecl_absolute_time()));
 	}
 }

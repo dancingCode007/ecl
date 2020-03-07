@@ -88,6 +88,8 @@ WindEstimator::initialise(const matrix::Vector3f &velI, const matrix::Vector2f &
 	_time_rejected_tas = 0;
 	_time_rejected_beta = 0;
 
+	_wind_estimator_reset = true;
+
 	return true;
 }
 
@@ -97,6 +99,9 @@ WindEstimator::update(uint64_t time_now)
 	if (!_initialised) {
 		return;
 	}
+
+	// set reset state to false (is set to true when initialise fuction is called later)
+	_wind_estimator_reset = false;
 
 	// run covariance prediction at 1Hz
 	if (time_now - _time_last_update < 1000 * 1000 || _time_last_update == 0) {
@@ -170,7 +175,7 @@ WindEstimator::fuse_airspeed(uint64_t time_now, const float true_airspeed, const
 
 	const matrix::Matrix<float, 1, 1> S = H_tas * _P * H_tas.transpose() + _tas_var;
 
-	K /= (S._data[0][0]);
+	K /= S(0,0);
 	// compute innovation
 	const float airspeed_pred = _state(tas) * sqrtf((v_n - _state(w_n)) * (v_n - _state(w_n)) + (v_e - _state(w_e)) *
 				    (v_e - _state(w_e)) + v_d * v_d);
@@ -178,7 +183,7 @@ WindEstimator::fuse_airspeed(uint64_t time_now, const float true_airspeed, const
 	_tas_innov = true_airspeed - airspeed_pred;
 
 	// innovation variance
-	_tas_innov_var = S._data[0][0];
+	_tas_innov_var = S(0,0);
 
 	bool reinit_filter = false;
 	bool meas_is_rejected = false;
@@ -256,7 +261,7 @@ WindEstimator::fuse_beta(uint64_t time_now, const matrix::Vector3f &velI, const 
 
 	const matrix::Matrix<float, 1, 1> S = H_beta * _P * H_beta.transpose() + _beta_var;
 
-	K /= (S._data[0][0]);
+	K /= S(0,0);
 
 	// compute predicted side slip angle
 	matrix::Vector3f rel_wind(velI(0) - _state(w_n), velI(1) - _state(w_e), velI(2));
@@ -271,7 +276,7 @@ WindEstimator::fuse_beta(uint64_t time_now, const matrix::Vector3f &velI, const 
 	const float beta_pred = rel_wind(1) / rel_wind(0);
 
 	_beta_innov = 0.0f - beta_pred;
-	_beta_innov_var = S._data[0][0];
+	_beta_innov_var = S(0,0);
 
 	bool reinit_filter = false;
 	bool meas_is_rejected = false;
@@ -325,8 +330,14 @@ WindEstimator::run_sanity_checks()
 		return;
 	}
 
-	// constrain airspeed scale factor, negative values physically do not make sense
-	_state(tas) = math::max(0.0f, _state(tas));
+	// check if we should inhibit learning of airspeed scale factor and rather use a pre-set value.
+	// airspeed scale factor errors arise from sensor installation which does not change and only needs
+	// to be computed once for a perticular installation.
+	if (_enforced_airspeed_scale < 0) {
+		_state(tas) = math::max(0.0f, _state(tas));
+	} else {
+		_state(tas) = _enforced_airspeed_scale;
+	}
 
 	// attain symmetry
 	for (unsigned row = 0; row < 3; row++) {

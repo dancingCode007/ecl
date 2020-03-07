@@ -46,7 +46,11 @@
 #include <ecl.h>
 
 #include <mathlib/mathlib.h>
-#include <cfloat>
+#include <matrix/math.hpp>
+#include <float.h>
+
+using matrix::wrap_pi;
+using matrix::wrap_2pi;
 
 /*
  * Azimuthal Equidistant Projection
@@ -144,7 +148,7 @@ int map_projection_project(const struct map_projection_reference_s *ref, double 
 
 	double k = 1.0;
 
-	if (fabs(c) >= DBL_EPSILON) {
+	if (fabs(c) > 0) {
 		k = (c / sin(c));
 	}
 
@@ -169,7 +173,7 @@ int map_projection_reproject(const struct map_projection_reference_s *ref, float
 	const double y_rad = (double)y / CONSTANTS_RADIUS_OF_EARTH;
 	const double c = sqrt(x_rad * x_rad + y_rad * y_rad);
 
-	if (fabs(c) > DBL_EPSILON) {
+	if (fabs(c) > 0) {
 		const double sin_c = sin(c);
 		const double cos_c = cos(c);
 
@@ -208,7 +212,7 @@ int globallocalconverter_init(double lat_0, double lon_0, float alt_0, uint64_t 
 {
 	gl_ref.alt = alt_0;
 
-	if (map_projection_global_init(lat_0, lon_0, timestamp) != 0) {
+	if (!map_projection_global_init(lat_0, lon_0, timestamp)) {
 		gl_ref.init_done = true;
 		return 0;
 	}
@@ -291,7 +295,7 @@ void create_waypoint_from_line_and_dist(double lat_A, double lon_A, double lat_B
 
 	} else {
 		float heading = get_bearing_to_next_waypoint(lat_A, lon_A, lat_B, lon_B);
-		heading = _wrap_2pi(heading + M_PI_F);
+		heading = wrap_2pi(heading + M_PI_F);
 		waypoint_from_heading_and_distance(lat_A, lon_A, heading, dist, lat_target, lon_target);
 	}
 }
@@ -299,7 +303,7 @@ void create_waypoint_from_line_and_dist(double lat_A, double lon_A, double lat_B
 void waypoint_from_heading_and_distance(double lat_start, double lon_start, float bearing, float dist,
 					double *lat_target, double *lon_target)
 {
-	bearing = _wrap_2pi(bearing);
+	bearing = wrap_2pi(bearing);
 	double radius_ratio = (double)fabs((double)dist) / CONSTANTS_RADIUS_OF_EARTH;
 
 	double lat_start_rad = math::radians(lat_start);
@@ -315,19 +319,18 @@ void waypoint_from_heading_and_distance(double lat_start, double lon_start, floa
 
 float get_bearing_to_next_waypoint(double lat_now, double lon_now, double lat_next, double lon_next)
 {
-	double lat_now_rad = math::radians(lat_now);
-	double lon_now_rad = math::radians(lon_now);
-	double lat_next_rad = math::radians(lat_next);
-	double lon_next_rad = math::radians(lon_next);
+	const double lat_now_rad = math::radians(lat_now);
+	const double lat_next_rad = math::radians(lat_next);
 
-	double d_lon = lon_next_rad - lon_now_rad;
+	const double cos_lat_next = cos(lat_next_rad);
+	const double d_lon = math::radians(lon_next - lon_now);
 
 	/* conscious mix of double and float trig function to maximize speed and efficiency */
 
-	const float y = static_cast<float>(sin(d_lon) * cos(lat_next_rad));
-	const float x = static_cast<float>(cos(lat_now_rad) * sin(lat_next_rad) - sin(lat_now_rad) * cos(lat_next_rad) * cos(d_lon));
+	const float y = static_cast<float>(sin(d_lon) * cos_lat_next);
+	const float x = static_cast<float>(cos(lat_now_rad) * sin(lat_next_rad) - sin(lat_now_rad) * cos_lat_next * cos(d_lon));
 
-	return _wrap_pi(atan2f(y, x));
+	return wrap_pi(atan2f(y, x));
 }
 
 void
@@ -390,7 +393,7 @@ int get_distance_to_line(struct crosstrack_error_s *crosstrack_error, double lat
 
 	float bearing_end = get_bearing_to_next_waypoint(lat_now, lon_now, lat_end, lon_end);
 	float bearing_track = get_bearing_to_next_waypoint(lat_start, lon_start, lat_end, lon_end);
-	float bearing_diff = _wrap_pi(bearing_track - bearing_end);
+	float bearing_diff = wrap_pi(bearing_track - bearing_end);
 
 	// Return past_end = true if past end point of line
 	if (bearing_diff > M_PI_2_F || bearing_diff < -M_PI_2_F) {
@@ -402,10 +405,10 @@ int get_distance_to_line(struct crosstrack_error_s *crosstrack_error, double lat
 	crosstrack_error->distance = (dist_to_end) * sinf(bearing_diff);
 
 	if (sinf(bearing_diff) >= 0) {
-		crosstrack_error->bearing = _wrap_pi(bearing_track - M_PI_2_F);
+		crosstrack_error->bearing = wrap_pi(bearing_track - M_PI_2_F);
 
 	} else {
-		crosstrack_error->bearing = _wrap_pi(bearing_track + M_PI_2_F);
+		crosstrack_error->bearing = wrap_pi(bearing_track + M_PI_2_F);
 	}
 
 	return_value = 0;
@@ -491,14 +494,14 @@ int get_distance_to_arc(struct crosstrack_error_s *crosstrack_error, double lat_
 
 		double start_disp_x = (double)radius * sin((double)arc_start_bearing);
 		double start_disp_y = (double)radius * cos((double)arc_start_bearing);
-		double end_disp_x = (double)radius * sin((double)_wrap_pi(arc_start_bearing + arc_sweep));
-		double end_disp_y = (double)radius * cos((double)_wrap_pi(arc_start_bearing + arc_sweep));
+		double end_disp_x = (double)radius * sin((double)wrap_pi(arc_start_bearing + arc_sweep));
+		double end_disp_y = (double)radius * cos((double)wrap_pi(arc_start_bearing + arc_sweep));
 		double lon_start = lon_now + start_disp_x / 111111.0;
 		double lat_start = lat_now + start_disp_y * cos(lat_now) / 111111.0;
 		double lon_end = lon_now + end_disp_x / 111111.0;
 		double lat_end = lat_now + end_disp_y * cos(lat_now) / 111111.0;
-		double dist_to_start = get_distance_to_next_waypoint(lat_now, lon_now, lat_start, lon_start);
-		double dist_to_end = get_distance_to_next_waypoint(lat_now, lon_now, lat_end, lon_end);
+		float dist_to_start = get_distance_to_next_waypoint(lat_now, lon_now, lat_start, lon_start);
+		float dist_to_end = get_distance_to_next_waypoint(lat_now, lon_now, lat_end, lon_end);
 
 		if (dist_to_start < dist_to_end) {
 			crosstrack_error->distance = dist_to_start;
@@ -511,8 +514,9 @@ int get_distance_to_arc(struct crosstrack_error_s *crosstrack_error, double lat_
 		}
 	}
 
-	crosstrack_error->bearing = _wrap_pi(crosstrack_error->bearing);
+	crosstrack_error->bearing = wrap_pi(crosstrack_error->bearing);
 	return_value = 0;
+
 	return return_value;
 }
 
@@ -552,124 +556,4 @@ float mavlink_wpm_distance_to_point_local(float x_now, float y_now, float z_now,
 	*dist_z = fabsf(dz);
 
 	return sqrtf(dx * dx + dy * dy + dz * dz);
-}
-
-float _wrap_pi(float bearing)
-{
-	/* value is inf or NaN */
-	if (!ISFINITE(bearing)) {
-		return bearing;
-	}
-
-	int c = 0;
-
-	while (bearing >= M_PI_F) {
-		bearing -= (2 * M_PI_F);
-
-		if (c++ > 3) {
-			return NAN;
-		}
-	}
-
-	c = 0;
-
-	while (bearing < -M_PI_F) {
-		bearing += (2 * M_PI_F);
-
-		if (c++ > 3) {
-			return NAN;
-		}
-	}
-
-	return bearing;
-}
-
-float _wrap_2pi(float bearing)
-{
-	/* value is inf or NaN */
-	if (!ISFINITE(bearing)) {
-		return bearing;
-	}
-
-	int c = 0;
-
-	while (bearing >= (2 * M_PI_F)) {
-		bearing -= (2 * M_PI_F);
-
-		if (c++ > 3) {
-			return NAN;
-		}
-	}
-
-	c = 0;
-
-	while (bearing < 0.0f) {
-		bearing += (2 * M_PI_F);
-
-		if (c++ > 3) {
-			return NAN;
-		}
-	}
-
-	return bearing;
-}
-
-float _wrap_180(float bearing)
-{
-	/* value is inf or NaN */
-	if (!ISFINITE(bearing)) {
-		return bearing;
-	}
-
-	int c = 0;
-
-	while (bearing >= 180.0f) {
-		bearing -= 360.0f;
-
-		if (c++ > 3) {
-			return NAN;
-		}
-	}
-
-	c = 0;
-
-	while (bearing < -180.0f) {
-		bearing += 360.0f;
-
-		if (c++ > 3) {
-			return NAN;
-		}
-	}
-
-	return bearing;
-}
-
-float _wrap_360(float bearing)
-{
-	/* value is inf or NaN */
-	if (!ISFINITE(bearing)) {
-		return bearing;
-	}
-
-	int c = 0;
-
-	while (bearing >= 360.0f) {
-		bearing -= 360.0f;
-
-		if (c++ > 3) {
-			return NAN;
-		}
-	}
-
-	c = 0;
-
-	while (bearing < 0.0f) {
-		bearing += 360.0f;
-
-		if (c++ > 3) {
-			return NAN;
-		}
-	}
-
-	return bearing;
 }
